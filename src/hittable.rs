@@ -2,7 +2,7 @@
 //!
 //! 提供光线与物体相交的记录结构和抽象接口
 
-use std::rc::Rc;
+use std::sync::Arc;
 use super::vec3::{self, Vec3, Point3};
 use super::ray::Ray;
 use super::interval::Interval;
@@ -20,14 +20,14 @@ use super::material::Material;
 pub struct HitRecord {
     pub p: Point3,
     pub normal: Vec3,
-    pub mat: Option<Rc<dyn Material>>,
+    pub mat: Option<Arc<dyn Material + Send + Sync>>,
     pub t: f64,
     pub front_face: bool,
 }
 /// 可命中物体的抽象接口
 /// 
 /// 任何可以被光线命中的物体都应实现此trait
-pub trait Hittable {
+pub trait Hittable: Send + Sync {
     /// 检查光线是否命中物体
     /// 
     /// # Arguments

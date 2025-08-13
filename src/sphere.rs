@@ -14,6 +14,7 @@ use super::hittable::{
   Hittable,
 };
 use super::interval::Interval;
+use std::sync::Arc;
 
 /// 球体几何形状
 /// 
@@ -24,7 +25,7 @@ use super::interval::Interval;
 pub struct Sphere {
   center: Point3,
   radius: f64,
-  mat: Rc<dyn Material>,
+  mat: Arc<dyn Material + Send + Sync>
 }
 
 impl Sphere {
@@ -34,7 +35,7 @@ impl Sphere {
   /// * `center` - 球心位置
   /// * `radius` - 球体半径
   /// * `material` - 球体材质
-  pub fn new(center: Point3, radius: f64, material: Rc<dyn Material>) -> Self {
+  pub fn new(center: Point3, radius: f64, material: Arc<dyn Material + Send + Sync>) -> Self {
     Self {
       center,
       radius,
@@ -91,7 +92,7 @@ impl Hittable for Sphere {
         hit_record.set_face_normal(r, outward_normal);
         
         // 复制材质引用（使用Rc共享所有权）
-        hit_record.mat = Some(Rc::clone(&self.mat));
+        hit_record.mat = Some(Arc::clone(&self.mat));
 
         true  // 命中成功
     }

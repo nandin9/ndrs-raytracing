@@ -9,6 +9,10 @@ use super::ray::Ray;
 use super::interval::Interval;
 use super::vec3::{self, Point3, Vec3};
 
+use crossbeam::scope;
+use std::io::{self, Write};
+use std::sync::{Arc, Mutex};
+
 /// 相机结构体，包含渲染场景所需的所有参数
 /// 
 /// # Fields
@@ -16,6 +20,7 @@ use super::vec3::{self, Point3, Vec3};
 /// - image_width: 图像宽度(像素)
 /// - samples_per_pixel: 每个像素的采样次数
 /// - max_depth: 光线最大反弹次数
+#[derive(Clone, Copy)]
 pub struct Camera {
     pub aspect_ratio: f64,  // 图像宽高比（宽度/高度）
     pub image_width: i32,   // 渲染图像宽度（像素数）
@@ -84,7 +89,7 @@ impl Camera {
         let stdout = std::io::stdout();
 
         for j in 0..self.image_height {
-            eprintln!("\rScanlines remaining: {}", self.image_height - j);
+            // eprintln!("\rScanlines remaining: {}", self.image_height - j);
             for i in 0..self.image_width {
                 let mut pixel_color = Color::default();
                 for _ in 0..self.samples_per_pixel {
@@ -99,6 +104,115 @@ impl Camera {
         eprintln!("\nDone.");
     }
 
+   pub fn render_multi_thread(&mut self, world: &dyn Hittable) {
+        self.initialize();
+
+        let width = self.image_width as usize;
+        let height = self.image_height as usize;
+        let samples_per_pixel = self.samples_per_pixel;
+        let max_depth = self.max_depth;
+
+        println!("P3\n{} {}\n255", width, height);
+
+        // 这里一次性创建 Arc<Mutex<>>，所有线程共享
+        let pixels = Arc::new(Mutex::new(vec![0u8; width * height * 3]));
+
+        let thread_count = num_cpus::get();
+        let rows_per_thread = height / thread_count + 1;
+
+        // 克隆一个不可变引用 self 用于多线程
+        let cam_ref = &*self; 
+
+        eprintln!("\rScanlines row: {} {}", width,  self.image_height);
+
+        scope(|s| {
+            for thread_idx in 0..thread_count {
+                let pixels = Arc::clone(&pixels);
+                let world = world;
+                let cam = cam_ref;
+
+                let start_row = thread_idx * rows_per_thread;
+                let end_row = ((thread_idx + 1) * rows_per_thread).min(height);
+
+                // s.spawn(move |_| {
+                //     for j in start_row..end_row {
+                //         // eprintln!("\rScanlines remaining: {}", height - j);
+                //         for i in 0..width {
+                //             let mut pixel_color = Color::default();
+                //             for _ in 0..samples_per_pixel {
+                //                 let r = cam.get_ray(i as i32, j as i32);
+                //                 pixel_color += Self::ray_color(&r, max_depth, world);
+                //             }
+                //             let scale = 1.0 / samples_per_pixel as f64;
+                //             pixel_color *= scale;
+                //             let ir = (pixel_color.x().sqrt() * 255.999) as u8;
+                //             let ig = (pixel_color.y().sqrt() * 255.999) as u8;
+                //             let ib = (pixel_color.z().sqrt() * 255.999) as u8;
+
+                //             let offset = (j * width + i) * 3;
+
+                //             // 加锁写共享缓冲区
+                //             let mut pixels_lock = pixels.lock().unwrap();
+                //             pixels_lock[offset] = ir;
+                //             pixels_lock[offset + 1] = ig;
+                //             pixels_lock[offset + 2] = ib;
+                //         }
+                //     }
+                // });
+                s.spawn(move |_| {
+                    // 每个线程独立维护一个局部缓冲区
+                    let mut local_pixels = vec![0u8; (end_row - start_row) * width * 3];
+
+                    for (local_j, j) in (start_row..end_row).enumerate() {
+                        for i in 0..width {
+                            // ... 计算颜色 ...
+                            let mut pixel_color = Color::default();
+                            for _ in 0..samples_per_pixel {
+                                let r = cam.get_ray(i as i32, j as i32);
+                                pixel_color += Self::ray_color(&r, max_depth, world);
+                            }
+                            let scale = 1.0 / samples_per_pixel as f64;
+                            pixel_color *= scale;
+                            let ir = (pixel_color.x().sqrt() * 255.999) as u8;
+                            let ig = (pixel_color.y().sqrt() * 255.999) as u8;
+                            let ib = (pixel_color.z().sqrt() * 255.999) as u8;
+                            let local_offset = (local_j * width + i) * 3;
+                            local_pixels[local_offset] = ir;
+                            local_pixels[local_offset + 1] = ig;
+                            local_pixels[local_offset + 2] = ib;
+                        }
+                    }
+
+                    // 计算完成后，合并写入共享缓冲区（只锁一次）
+                    let mut pixels_lock = pixels.lock().unwrap();
+                    let global_offset = start_row * width * 3;
+                    pixels_lock[global_offset..global_offset + local_pixels.len()]
+                        .copy_from_slice(&local_pixels);
+                });
+            }
+        }).unwrap();
+
+        // 所有线程结束，输出结果
+        let pixels = Arc::try_unwrap(pixels).expect("Arc has other owners");
+        let pixels = pixels.into_inner().unwrap();
+
+        let stdout = std::io::stdout();
+        let mut out = stdout.lock();
+
+        for j in 0..height {
+            for i in 0..width {
+                let offset = (j * width + i) * 3;
+                writeln!(
+                    out,
+                    "{} {} {}",
+                    pixels[offset], pixels[offset + 1], pixels[offset + 2]
+                ).unwrap();
+            }
+        }
+
+        eprintln!("\nDone.");
+}
+
     /// 初始化相机参数
     /// 
     /// 根据当前配置计算:
@@ -107,7 +221,7 @@ impl Camera {
     /// - 像素增量向量
     /// - 初始像素位置
     fn initialize(&mut self) {
-        // self.image_height = (self.image_width as f64 / self.aspect_ratio) as i32;
+        self.image_height = (self.image_width as f64 / self.aspect_ratio) as i32;
         self.image_height = if self.image_height < 1 { 1 } else { self.image_height };
 
         // self.center = Point3::default();

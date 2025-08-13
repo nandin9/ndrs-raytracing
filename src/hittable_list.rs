@@ -3,6 +3,7 @@
 //! 提供HittableList结构体，用于管理多个可命中物体的集合
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use super::hittable::{
     HitRecord,
@@ -17,7 +18,7 @@ use super::interval::Interval;
 /// - objects: 可命中物体集合，使用引用计数智能指针管理
 #[derive(Default)]
 pub struct HittableList {
-    pub objects: Vec<Rc<dyn Hittable>>,
+    pub objects: Vec<Arc<dyn Hittable>>,
 }
 
 impl HittableList {
@@ -28,7 +29,7 @@ impl HittableList {
     /// 
     /// # Returns
     /// 返回包含指定物体的新HittableList实例
-    pub fn new(object: Rc<dyn Hittable>) -> Self {
+    pub fn new(object: Arc<dyn Hittable>) -> Self {
         Self {
             objects: vec![object],
         }
@@ -43,7 +44,7 @@ impl HittableList {
     /// 
     /// # Arguments
     /// * `object` - 要添加的物体
-    pub fn add(&mut self, object: Rc<dyn Hittable>) {
+    pub fn add(&mut self, object: Arc<dyn Hittable>) {
         self.objects.push(object);
     }
 

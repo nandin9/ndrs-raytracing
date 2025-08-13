@@ -13,7 +13,8 @@ pub mod interval;
 pub mod camera;
 pub mod material;
 
-use std::rc::Rc;
+// use std::rc::Rc;
+use std::sync::Arc;
 
 use vec3::{Vec3, Point3};
 use color::Color;
@@ -26,15 +27,15 @@ fn main() {
     // World
     let mut world = HittableList::default();
 
-    let ground_material: Rc<dyn Material> = Rc::new(
+    let ground_material: Arc<dyn Material + Send + Sync> = Arc::new(
         Lambertian::new(color::Color::new(0.5, 0.5, 0.5))
     );
-    world.add(Rc::new(
+    world.add(Arc::new(
         Sphere::new(Point3::new(0.0, -1000.0, 0.0), 1000.0, ground_material)
     ));
 
-    for a in -3..3 {
-        for b in -3..3 {
+    for a in -8..8 {
+        for b in -8..8 {
             let choose_mat = rtweekend::random_double();
             let center = Point3::new(
                 a as f64 + 0.9 * rtweekend::random_double(),
@@ -43,47 +44,47 @@ fn main() {
             );
 
             if (center - Point3::new(4.0, 0.2, 0.0)).length() > 0.9 {
-                let sphere_material: Rc<dyn Material> = if choose_mat < 0.8 {
+                let sphere_material: Arc<dyn Material + Send + Sync> = if choose_mat < 0.8 {
                     // diffuse
                     let albedo = Color::random() * Color::random();
-                    Rc::new(Lambertian::new(albedo))
+                    Arc::new(Lambertian::new(albedo))
                 } else if choose_mat < 0.95 {
                     // metal
                     let albedo = Color::random_range(0.5, 1.0);
                     let fuzz = rtweekend::random_double_range(0.0, 0.5);
-                    Rc::new(Metal::new(albedo, fuzz))
+                    Arc::new(Metal::new(albedo, fuzz))
                 } else {
                     // glass
-                    Rc::new(Dielectric::new(1.5))
+                    Arc::new(Dielectric::new(1.5))
                 };
 
-                world.add(Rc::new(
+                world.add(Arc::new(
                     Sphere::new(center, 0.2, sphere_material)
                 ));
             }
         }
     }
 
-    let material1: Rc<dyn Material> = Rc::new(
+    let material1: Arc<dyn Material + Send + Sync> = Arc::new(
         Dielectric::new(1.5)
     );
     
     // 三个大球
-    world.add(Rc::new(
+    world.add(Arc::new(
         Sphere::new(Point3::new(0.0, 1.0, 0.0), 1.0, material1)
     ));
 
-    let material2: Rc<dyn Material> = Rc::new(
+    let material2: Arc<dyn Material + Send + Sync>= Arc::new(
         Lambertian::new(Color::new(0.4, 0.2, 0.1))
     );
-    world.add(Rc::new(
+    world.add(Arc::new(
         Sphere::new(Point3::new(-4.0, 1.0, 0.0), 1.0, material2)
     ));
 
-    let material3: Rc<dyn Material> = Rc::new(
+    let material3: Arc<dyn Material + Send + Sync> = Arc::new(
         Metal::new(Color::new(0.7, 0.6, 0.5), 0.0)
     );
-    world.add(Rc::new(
+    world.add(Arc::new(
         Sphere::new(Point3::new(4.0, 1.0, 0.0), 1.0, material3)
     ));
 
@@ -102,6 +103,12 @@ fn main() {
     cam.defocus_angle = 0.6;
     cam.focus_dist = 10.0;
 
-    // Render
-    cam.render(&world);
+    // Render (统计时间)
+    use std::time::Instant;
+    let start = Instant::now();
+    // cam.render(&world);
+    cam.render_multi_thread(&world);
+
+    let duration = start.elapsed();
+    eprintln!("Render time: {:.2?}", duration);
 }

@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 rand = "0"
+crossbeam = "0.8"
+num_cpus = "1.14"
